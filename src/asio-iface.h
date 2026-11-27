@@ -65,6 +65,12 @@ typedef enum ASIOSampleType {
     ASIOSTDSDInt8NER8 = 40,
 } ASIOSampleType;
 
+typedef enum {
+    STEREO = 0,         // default, surround audio disabled
+    SURROUND_5_1 = 1,
+    SURROUND_7_1 = 2,
+} ASIOSurroundSystem;
+
 #pragma pack(push, 4)
 
 typedef struct ASIOSamples {

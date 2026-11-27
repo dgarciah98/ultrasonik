@@ -25,7 +25,7 @@ struct asio_backend {
     struct snd_mixer *mixer;
     struct config cfg;
     WAVEFORMATEX sys_wfx;
-    ASIOBufferInfo buffer_info[2]; /* stereo: output L, output R */
+    ASIOBufferInfo *buffer_info; /* stereo: output L, output R */
     ASIOSampleType sample_type;
     long buffer_size;
     HANDLE started;
@@ -56,6 +56,20 @@ static ASIOCallbacks asio_callbacks = {
 #define kAsioEngineVersion      2
 #define kAsioSupportsTimeInfo   4
 #define kAsioSupportsTimeCode   5
+
+static uint8_t asio_resolve_surround_channels(const uint8_t surround_system)
+{
+    if (surround_system == NULL) {
+        return 2;
+    }
+    switch(surround_system) {
+        case SURROUND_5_1: return 6;
+        case SURROUND_7_1: return 8;
+        case STEREO:
+        default:
+            return 2;
+    };
+}
 
 static ASIOSampleType asio_sample_type_from_depth(uint32_t bit_depth)
 {
@@ -169,12 +183,15 @@ static void asio_buffer_switch(long index, ASIOBool direct_process)
     snd_mixer_mix(asio->mixer, mix_buf);
     snd_service_exhaust(asio->svc);
 
-    asio_convert_s16_to_asio(
+    uint8_t channels = asio_resolve_surround_channels(asio->cfg.surround_system);
+    for (uint8_t ch = 0; ch < channels; ch += 2) {
+        asio_convert_s16_to_asio(
             mix_buf,
-            asio->buffer_info[0].buffers[index],
-            asio->buffer_info[1].buffers[index],
+            asio->buffer_info[ch].buffers[index],
+            asio->buffer_info[ch + 1].buffers[index],
             asio->buffer_size,
             asio->sample_type);
+    }
 
     asio->driver->lpVtbl->outputReady(asio->driver);
 }
@@ -500,17 +517,35 @@ HRESULT asio_start(struct asio_backend *asio)
     trace("ASIO: Using sample type %ld from device", (long) asio->sample_type);
 
     /* Create output buffers (stereo: channels 0 and 1) */
+    
+    uint8_t surround_system = asio->cfg.surround_system;
+    uint8_t channels = asio_resolve_surround_channels(surround_system);
+    if (out_channels < channels) {
+        trace("ASIO: Need %u output channels, got %ld", channels, out_channels);
+        hr = E_FAIL;
+        goto end;
+    }
 
-    memset(asio->buffer_info, 0, sizeof(asio->buffer_info));
-    asio->buffer_info[0].isInput = ASIOFalse;
-    asio->buffer_info[0].channelNum = 0;
-    asio->buffer_info[1].isInput = ASIOFalse;
-    asio->buffer_info[1].channelNum = 1;
+    if (surround_system > 0 && out_channels > 2) {
+        asio->buffer_info = calloc(channels, sizeof(ASIOBufferInfo));
+    } else {
+        asio->buffer_info = calloc(2, sizeof(ASIOBufferInfo));
+    }
+    
+    if (asio->buffer_info == NULL) {
+        hr = E_OUTOFMEMORY;
+        goto end;
+    }
 
+    for (int i = 0; i < channels; i++) {
+        asio->buffer_info[i].isInput = ASIOFalse;
+        asio->buffer_info[i].channelNum = i;
+    }
+    
     ae = drv->lpVtbl->createBuffers(
             drv,
             asio->buffer_info,
-            2,
+            channels,
             asio->buffer_size,
             &asio_callbacks);
 
@@ -610,6 +645,8 @@ HRESULT asio_stop(struct asio_backend *asio)
     asio->driver->lpVtbl->disposeBuffers(asio->driver);
     asio->driver->lpVtbl->Release(asio->driver);
     asio->driver = NULL;
+    free(asio->buffer_info);
+    asio->buffer_info = NULL;
 
     if (asio->com_initialized) {
         CoUninitialize();

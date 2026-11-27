@@ -49,6 +49,7 @@ void config_load(struct config *cfg)
     cfg->sample_rate = 44100;
     cfg->bit_depth = 24;
     cfg->buffer_size = 192;
+    cfg->surround_system = 0; /* stereo */
 
     hmod = GetModuleHandleA("dsound.dll");
 
@@ -154,7 +155,15 @@ void config_load(struct config *cfg)
             if (endptr != val && v >= 0) {
                 cfg->buffer_size = (uint32_t)v;
             }
+        } else if (_stricmp(key, "surround_system") == 0) {
+            char *endptr;
+            long v = strtol(val, &endptr, 10);
+
+            if (endptr != val && v >= 0) {
+                cfg->surround_system = (uint8_t)v;
+            }
         }
+
     }
 
     fclose(fp);
@@ -173,11 +182,12 @@ validate:
         cfg->bit_depth = 24;
     }
 
-    trace("Config loaded: device='%s', sample_rate=%u, bit_depth=%u, buffer_size=%u",
+    trace("Config loaded: device='%s', sample_rate=%u, bit_depth=%u, buffer_size=%u, surround_system='%u'",
             cfg->device,
             cfg->sample_rate,
             cfg->bit_depth,
-            cfg->buffer_size);
+            cfg->buffer_size,
+            cfg->surround_system);
 
     trace_exit();
 }
