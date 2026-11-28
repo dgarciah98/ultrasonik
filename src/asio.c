@@ -59,9 +59,6 @@ static ASIOCallbacks asio_callbacks = {
 
 static uint8_t asio_resolve_surround_channels(const uint8_t surround_system)
 {
-    if (surround_system == NULL) {
-        return 2;
-    }
     switch(surround_system) {
         case SURROUND_5_1: return 6;
         case SURROUND_7_1: return 8;
